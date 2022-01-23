@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net"
+	"os"
 
 	pb "github.com/Omar-Belghaouti/usermgmt/usermgmt"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 const (
@@ -15,14 +18,11 @@ const (
 )
 
 func NewUserManagementServer() *UserManagementServer {
-	return &UserManagementServer{
-		users: &pb.Users{},
-	}
+	return &UserManagementServer{}
 }
 
 type UserManagementServer struct {
 	pb.UnimplementedUserManagementServer
-	users *pb.Users
 }
 
 func (server *UserManagementServer) Run() error {
@@ -39,14 +39,59 @@ func (server *UserManagementServer) Run() error {
 
 func (s *UserManagementServer) CreateNewUser(ctx context.Context, in *pb.NewUser) (*pb.User, error) {
 	log.Printf("Received: %v", in.GetName())
+	readBytes, err := ioutil.ReadFile("users.json")
+	var users *pb.Users = &pb.Users{}
 	var user_id int32 = int32(rand.Intn(1000))
 	created_user := &pb.User{Name: in.GetName(), Age: in.GetAge(), Id: user_id}
-	s.users.Users = append(s.users.Users, created_user)
+
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Printf("File not found. Creating new file.")
+			users.Users = append(users.Users, created_user)
+			jsonBytes, err := protojson.Marshal(users)
+			if err != nil {
+				log.Fatalf("Failed to marshal users: %v", err)
+			}
+			err = ioutil.WriteFile("users.json", jsonBytes, 0644)
+			if err != nil {
+				log.Fatalf("Failed to write users: %v", err)
+			}
+			return created_user, nil
+
+		} else {
+			log.Fatalf("Failed to read users: %v", err)
+		}
+	}
+
+	err = protojson.Unmarshal(readBytes, users)
+	if err != nil {
+		log.Fatalf("Failed to unmarshal users: %v", err)
+	}
+	users.Users = append(users.Users, created_user)
+	jsonBytes, err := protojson.Marshal(users)
+	if err != nil {
+		log.Fatalf("Failed to marshal users: %v", err)
+	}
+	err = ioutil.WriteFile("users.json", jsonBytes, 0644)
+	if err != nil {
+		log.Fatalf("Failed to write users: %v", err)
+	}
 	return created_user, nil
+
 }
 
 func (s *UserManagementServer) GetUsers(ctx context.Context, in *pb.Empty) (*pb.Users, error) {
-	return s.users, nil
+	readBytes, err := ioutil.ReadFile("users.json")
+	var users *pb.Users = &pb.Users{}
+	if err != nil {
+		log.Fatalf("Failed to read users: %v", err)
+	}
+
+	err = protojson.Unmarshal(readBytes, users)
+	if err != nil {
+		log.Fatalf("Failed to unmarshal users: %v", err)
+	}
+	return users, nil
 }
 
 func main() {
