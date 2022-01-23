@@ -37,4 +37,10 @@ func main() {
 		log.Printf("User created: %v, %v, %v", r.GetName(), r.GetAge(), r.GetId())
 	}
 
+	r, err := c.GetUsers(ctx, &pb.Empty{})
+	if err != nil {
+		log.Fatalf("could not greet: %v", err)
+	}
+	log.Printf("Users: %v", r.GetUsers())
+
 }

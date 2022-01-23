@@ -32,7 +32,7 @@ func (server *UserManagementServer) Run() error {
 	}
 
 	s := grpc.NewServer()
-	pb.RegisterUserManagementServer(s, &UserManagementServer{})
+	pb.RegisterUserManagementServer(s, server)
 	log.Printf("Server listening at %v", lis.Addr())
 	return s.Serve(lis)
 }
@@ -40,9 +40,9 @@ func (server *UserManagementServer) Run() error {
 func (s *UserManagementServer) CreateNewUser(ctx context.Context, in *pb.NewUser) (*pb.User, error) {
 	log.Printf("Received: %v", in.GetName())
 	var user_id int32 = int32(rand.Intn(1000))
-	createed_user := &pb.User{Name: in.GetName(), Age: in.GetAge(), Id: user_id}
-	s.users.Users = append(s.users.Users, createed_user)
-	return createed_user, nil
+	created_user := &pb.User{Name: in.GetName(), Age: in.GetAge(), Id: user_id}
+	s.users.Users = append(s.users.Users, created_user)
+	return created_user, nil
 }
 
 func (s *UserManagementServer) GetUsers(ctx context.Context, in *pb.Empty) (*pb.Users, error) {
