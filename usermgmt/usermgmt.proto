@@ -6,6 +6,13 @@ option go_package = "github.com/Omar-Belghaouti/usermgmt;usermgmt";
 
 service UserManagement {
     rpc CreateNewUser(NewUser) returns (User) {}
+    rpc GetUsers(Empty) returns (Users) {}
+}
+
+message Empty {}
+
+message Users {
+    repeated User users = 1;
 }
 
 message NewUser {
