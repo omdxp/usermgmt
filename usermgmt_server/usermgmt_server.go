@@ -2,15 +2,14 @@ package main
 
 import (
 	"context"
-	"io/ioutil"
 	"log"
-	"math/rand"
 	"net"
 	"os"
 
 	pb "github.com/Omar-Belghaouti/usermgmt/usermgmt"
+	"github.com/jackc/pgx/v4"
+	"github.com/joho/godotenv"
 	"google.golang.org/grpc"
-	"google.golang.org/protobuf/encoding/protojson"
 )
 
 const (
@@ -22,6 +21,7 @@ func NewUserManagementServer() *UserManagementServer {
 }
 
 type UserManagementServer struct {
+	conn *pgx.Conn
 	pb.UnimplementedUserManagementServer
 }
 
@@ -39,64 +39,76 @@ func (server *UserManagementServer) Run() error {
 
 func (s *UserManagementServer) CreateNewUser(ctx context.Context, in *pb.NewUser) (*pb.User, error) {
 	log.Printf("Received: %v", in.GetName())
-	readBytes, err := ioutil.ReadFile("users.json")
-	var users *pb.Users = &pb.Users{}
-	var user_id int32 = int32(rand.Intn(1000))
-	created_user := &pb.User{Name: in.GetName(), Age: in.GetAge(), Id: user_id}
+	createSql := `create table if not exists users (
+		id serial primary key,
+		name text,
+		age integer
+	);
+	`
+	_, err := s.conn.Exec(context.Background(), createSql)
+	if err != nil {
+		log.Fatalf("Failed to create table: %v", err)
+		os.Exit(1)
+	}
+	created_user := &pb.User{Name: in.GetName(), Age: in.GetAge()}
+	tx, err := s.conn.Begin(context.Background())
+	if err != nil {
+		log.Fatalf("conn.Begin failed: %v", err)
+	}
+	_, err = tx.Exec(context.Background(), "insert into users(name, age) values ($1, $2)", created_user.Name, created_user.Age)
+	if err != nil {
+		log.Fatalf("tx.Exec failed: %v", err)
+	}
+	tx.Commit(context.Background())
 
-	if err != nil {
-		if os.IsNotExist(err) {
-			log.Printf("File not found. Creating new file.")
-			users.Users = append(users.Users, created_user)
-			jsonBytes, err := protojson.Marshal(users)
-			if err != nil {
-				log.Fatalf("Failed to marshal users: %v", err)
-			}
-			err = ioutil.WriteFile("users.json", jsonBytes, 0644)
-			if err != nil {
-				log.Fatalf("Failed to write users: %v", err)
-			}
-			return created_user, nil
-
-		} else {
-			log.Fatalf("Failed to read users: %v", err)
-		}
-	}
-
-	err = protojson.Unmarshal(readBytes, users)
-	if err != nil {
-		log.Fatalf("Failed to unmarshal users: %v", err)
-	}
-	users.Users = append(users.Users, created_user)
-	jsonBytes, err := protojson.Marshal(users)
-	if err != nil {
-		log.Fatalf("Failed to marshal users: %v", err)
-	}
-	err = ioutil.WriteFile("users.json", jsonBytes, 0644)
-	if err != nil {
-		log.Fatalf("Failed to write users: %v", err)
-	}
 	return created_user, nil
 
 }
 
 func (s *UserManagementServer) GetUsers(ctx context.Context, in *pb.Empty) (*pb.Users, error) {
-	readBytes, err := ioutil.ReadFile("users.json")
-	var users *pb.Users = &pb.Users{}
-	if err != nil {
-		log.Fatalf("Failed to read users: %v", err)
-	}
 
-	err = protojson.Unmarshal(readBytes, users)
+	rows, err := s.conn.Query(context.Background(), "select * from users")
 	if err != nil {
-		log.Fatalf("Failed to unmarshal users: %v", err)
+		log.Fatalf("conn.Query failed: %v", err)
+		return nil, err
 	}
-	return users, nil
+	defer rows.Close()
+	var users []*pb.User
+	for rows.Next() {
+		var id int
+		var name string
+		var age int
+		err := rows.Scan(&id, &name, &age)
+		if err != nil {
+			log.Fatalf("rows.Scan failed: %v", err)
+			return nil, err
+		}
+		user := &pb.User{Id: int32(id), Name: name, Age: int32(age)}
+		users = append(users, user)
+	}
+	if err := rows.Err(); err != nil {
+		log.Fatalf("rows.Err failed: %v", err)
+	}
+	return &pb.Users{Users: users}, nil
 }
 
 func main() {
-	var usermgmt_server *UserManagementServer = NewUserManagementServer()
-	if err := usermgmt_server.Run(); err != nil {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+	database_url := os.Getenv("DATABASE_URL")
+	if database_url == "" {
+		log.Fatalf("DATABASE_URL is not set")
+	}
+	conn, err := pgx.Connect(context.Background(), database_url)
+	if err != nil {
+		log.Fatalf("Unable to connect to database: %v", err)
+	}
+	defer conn.Close(context.Background())
+	server := NewUserManagementServer()
+	server.conn = conn
+	if err := server.Run(); err != nil {
 		log.Fatalf("Failed to run server: %v", err)
 	}
 }
